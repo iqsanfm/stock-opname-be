@@ -112,6 +112,11 @@ app.get('/', (req, res) => {
   res.json({ 
     message: 'Stock Opname Backend API',
     version: '1.0.0',
+    env_check: {
+      mongodb_uri: !!process.env.MONGODB_URI,
+      jwt_secret: !!process.env.JWT_SECRET,
+      db_name: process.env.DB_NAME
+    },
     endpoints: {
       register: 'POST /auth/register',
       login: 'POST /auth/login',
@@ -123,20 +128,36 @@ app.get('/', (req, res) => {
 // Register
 app.post('/auth/register', async (req, res) => {
   try {
+    console.log('Register attempt:', req.body);
+    console.log('Environment check:', {
+      mongodb_uri: !!process.env.MONGODB_URI,
+      jwt_secret: !!process.env.JWT_SECRET,
+      db_name: process.env.DB_NAME
+    });
+
     const { username, email, password, role } = req.body;
 
     if (!username || !email || !password) {
+      console.log('Missing fields:', { username: !!username, email: !!email, password: !!password });
       return res.status(400).json({ message: 'Semua field harus diisi' });
     }
 
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET not found in environment variables');
+      return res.status(500).json({ message: 'Server configuration error' });
+    }
+
+    console.log('Checking existing user...');
     const existingUser = await User.findOne({
       $or: [{ email }, { username }]
     });
 
     if (existingUser) {
+      console.log('User already exists:', existingUser.email);
       return res.status(400).json({ message: 'Username atau email sudah terdaftar' });
     }
 
+    console.log('Creating new user...');
     const user = new User({
       username,
       email,
@@ -145,6 +166,7 @@ app.post('/auth/register', async (req, res) => {
     });
 
     await user.save();
+    console.log('User saved successfully');
 
     const token = jwt.sign(
       { id: user._id },
@@ -163,8 +185,16 @@ app.post('/auth/register', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Register error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Register error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -226,11 +256,50 @@ app.get('/auth/profile', auth, async (req, res) => {
 });
 
 // Test endpoint
-app.get('/test', (req, res) => {
-  res.json({
-    message: 'Backend API is working!',
-    timestamp: new Date().toISOString()
-  });
+app.get('/test', async (req, res) => {
+  try {
+    // Test database connection
+    const dbState = mongoose.connection.readyState;
+    const dbStates = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    };
+
+    // Test environment variables
+    const envCheck = {
+      mongodb_uri: !!process.env.MONGODB_URI,
+      jwt_secret: !!process.env.JWT_SECRET,
+      db_name: process.env.DB_NAME,
+      jwt_expire: process.env.JWT_EXPIRE
+    };
+
+    // Test user model
+    let userTest = null;
+    try {
+      const userCount = await User.countDocuments();
+      userTest = { success: true, count: userCount };
+    } catch (err) {
+      userTest = { success: false, error: err.message };
+    }
+
+    res.json({
+      message: 'Backend API is working!',
+      timestamp: new Date().toISOString(),
+      database: {
+        state: dbStates[dbState] || 'unknown',
+        stateCode: dbState
+      },
+      environment: envCheck,
+      userModel: userTest
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Test endpoint error',
+      error: error.message
+    });
+  }
 });
 
 app.listen(PORT, () => {
