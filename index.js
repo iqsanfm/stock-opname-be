@@ -26,13 +26,28 @@ app.use(express.json());
 // Handle preflight requests
 app.options('*', cors());
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI, {
-  dbName: process.env.DB_NAME
-}).then(() => {
-  console.log('MongoDB Connected');
-}).catch(err => {
-  console.error('Database connection error:', err);
+// MongoDB Connection with better error handling and timeout
+const connectDB = async () => {
+  try {
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect(process.env.MONGODB_URI, {
+        dbName: process.env.DB_NAME,
+        serverSelectionTimeoutMS: 5000,
+        socketTimeoutMS: 45000,
+        bufferCommands: false,
+        bufferMaxEntries: 0
+      });
+      console.log('MongoDB Connected Successfully');
+    }
+  } catch (error) {
+    console.error('Database connection error:', error.message);
+    throw error;
+  }
+};
+
+// Connect to database
+connectDB().catch(err => {
+  console.error('Initial database connection failed:', err);
 });
 
 // User Schema
@@ -129,12 +144,10 @@ app.get('/', (req, res) => {
 app.post('/auth/register', async (req, res) => {
   try {
     console.log('Register attempt:', req.body);
-    console.log('Environment check:', {
-      mongodb_uri: !!process.env.MONGODB_URI,
-      jwt_secret: !!process.env.JWT_SECRET,
-      db_name: process.env.DB_NAME
-    });
-
+    
+    // Ensure database connection
+    await connectDB();
+    
     const { username, email, password, role } = req.body;
 
     if (!username || !email || !password) {
@@ -150,7 +163,7 @@ app.post('/auth/register', async (req, res) => {
     console.log('Checking existing user...');
     const existingUser = await User.findOne({
       $or: [{ email }, { username }]
-    });
+    }).maxTimeMS(5000);
 
     if (existingUser) {
       console.log('User already exists:', existingUser.email);
@@ -193,7 +206,8 @@ app.post('/auth/register', async (req, res) => {
     res.status(500).json({ 
       message: 'Server error', 
       error: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      type: error.name,
+      isTimeoutError: error.message.includes('timeout') || error.message.includes('timed out')
     });
   }
 });
