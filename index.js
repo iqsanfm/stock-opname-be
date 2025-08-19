@@ -11,10 +11,10 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors({
   origin: [
-    'https://stock-opname-be.vercel.app',
-    'https://stock-opname-fe.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:8080'
+    'https://stock-opname-be.vercel.app',     // Frontend domain
+    'https://stock-opname-fe.vercel.app',     // Alternative frontend domain
+    'http://localhost:3000',                  // Local development
+    'http://localhost:8080'                   // Alternative local
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
